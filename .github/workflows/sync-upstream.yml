@@ -8,14 +8,36 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: artcraft-upstream-sync
+  cancel-in-progress: false
+
 jobs:
   sync:
     runs-on: ubuntu-latest
     steps:
-      - name: Merge upstream changes into main
-        env:
-          GH_TOKEN: ${{ github.token }}
+      - name: Check out fork with history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Merge upstream while preserving this fork's workflows
+        shell: bash
         run: |
-          gh api --method POST \
-            "/repos/${GITHUB_REPOSITORY}/merge-upstream" \
-            --field branch=main
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git remote add upstream https://github.com/storytold/artcraft.git
+          git fetch --no-tags upstream main
+          git merge --no-commit --no-ff FETCH_HEAD
+
+          # GitHub's GITHUB_TOKEN cannot import upstream workflow files.
+          # Keep this fork's existing workflows, but merge other upstream changes.
+          git restore --source=HEAD --staged --worktree -- .github/workflows
+
+          if git rev-parse -q --verify MERGE_HEAD >/dev/null; then
+            git commit -m "Merge ArtCraft upstream (preserve fork workflows)"
+          fi
+
+          git push origin HEAD:main
